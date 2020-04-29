@@ -1,6 +1,7 @@
 use std::any;
 
 mod meta_type {
+    use super::*;
     use super::TypeInfo;
 
     pub enum MetaType {
@@ -10,41 +11,58 @@ mod meta_type {
     }
 
     impl MetaType
+    {
+        pub fn of<T>() -> Self
         where
             T: 'static + ?Sized + TypeInfo
-    {
-        fn of<T>() -> Self {
+        {
             MetaType::Concrete(MetaTypeConcrete {
                 id: any::TypeId::of::<T>(),
                 path: T::path(),
             })
         }
+
+        pub fn parameter<T>(name: &'static str, parent: MetaType) -> Self
+        where
+            T: 'static + ?Sized + TypeInfo
+        {
+            todo!()
+        }
+
+        pub fn parameterized<T>(params: Vec<MetaType>) -> Self
+        where
+            T: 'static + ?Sized + TypeInfo
+        {
+            todo!()
+        }
     }
 
-    struct MetaTypeConcrete {
+    pub struct MetaTypeConcrete {
         id: any::TypeId,
         path: &'static str,
     }
 
-    struct MetaTypeParameter {
+    pub struct MetaTypeParameter {
         name: &'static str,
         parent: MetaTypeConcrete,
         instance_id: any::TypeId,
     }
 
-    struct MetaTypeGeneric {
+    pub struct MetaTypeGeneric {
 
     }
 }
 
 mod form {
+    use super::*;
+
     pub trait Form {
         type Type;
     }
 
     pub enum MetaForm {}
 
-    impl Form for MetaFprm {
+    impl Form for MetaForm {
         type Type = MetaType;
     }
 
@@ -56,7 +74,8 @@ mod form {
 }
 
 mod registry {
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::btree_map::{BTreeMap, Entry};
+    use super::*;
     use super::form::*;
     use super::meta_type::*;
     use super::Type;
@@ -67,41 +86,42 @@ mod registry {
         fn into_compact(self, registry: &mut Registry) -> Self::Output;
     }
 
-    #[derive(Debug, PartialEq, Eq, Clone)]
+    #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone)]
     pub enum TypeId {
         Any(any::TypeId),
         Path(&'static str),
         Parameter(TypeParameter),
     }
 
-    pub enum RegistryType<F: Form = MetaForm> {
+    pub enum RegistryType<F: Form = CompactForm> {
         Definition(Type<F>),
         Parameter(TypeParameter)
     }
 
-    #[derive(Debug, PartialEq, Eq, Clone)]
+    #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone)]
     pub struct TypeParameter {
         path: &'static str,
         parent: <CompactForm as Form>::Type,
     }
 
+    #[derive(Default)]
     pub struct Registry {
-        type_table: BTreeMap<TypeId, <CompactForm as Form>::Type>,
+        type_table: BTreeMap<TypeId, usize>,
         type_ids: Vec<TypeId>,
-        types: BTreeMap<<CompactForm as Form>::Type, Type<CompactForm>>,
+        types: BTreeMap<<CompactForm as Form>::Type, RegistryType<CompactForm>>,
     }
 
     impl Registry {
-        fn intern_type<F, T>(&mut self, ty: &MetaType) -> <CompactForm as Form>::Type
+        fn intern_type<F, T>(&mut self, type_id: TypeId, f: F) -> <CompactForm as Form>::Type
             where
                 F: FnOnce () -> T,
                 T: Into<RegistryType>,
         {
             let next_id = self.type_ids.len();
-            let (inserted, sym_id) = match self.type_table.entry(s.clone()) {
+            let (inserted, sym_id) = match self.type_table.entry(type_id.clone()) {
                 Entry::Vacant(vacant) => {
                     vacant.insert(next_id);
-                    self.type_ids.push(s);
+                    self.type_ids.push(type_id);
                     (true, next_id)
                 }
                 Entry::Occupied(occupied) => (false, *occupied.get()),
@@ -109,8 +129,8 @@ mod registry {
             let symbol = (sym_id + 1) as u32;
             if inserted {
                 let registry_type = f().into();
-                let compact_type = registry_type.into_compact(self);
-                self.types.insert(symbol.clone(), compact_type);
+                // let compact_type = registry_type.into_compact(self);
+                self.types.insert(symbol.clone(), registry_type);
             }
             symbol
         }
@@ -118,47 +138,70 @@ mod registry {
         pub fn register_type(&mut self, ty: &MetaType) -> <CompactForm as Form>::Type {
             match ty {
                 MetaType::Concrete(ty) => {
-
+                    todo!()
                 },
                 MetaType::Parameter(p) => {
-
+                    todo!()
                 }
                 MetaType::Generic(g) => {
-
+                    todo!()
                 }
             }
         }
     }
 }
 
-enum Type<F: Form = MetaForm> {
-    Primitive(Primitive<F>),
+use meta_type::*;
+use form::*;
+use registry::*;
+
+pub enum Type<F: Form = MetaForm> {
+    Primitive(Primitive),
     Struct(Struct<F>),
 }
 
-struct Struct<F: Form = MetaForm> {
+impl IntoCompact for Type<MetaForm> {
+    type Output = Type<CompactForm>;
+
+    fn into_compact(self, registry: &mut Registry) -> Self::Output {
+        todo!()
+    }
+}
+
+pub struct Struct<F: Form = MetaForm> {
     fields: Vec<F::Type>,
 }
 
-enum Primitive<F: Form = Metaform> {
+pub enum Primitive {
     Bool,
     U32,
 }
 
-trait TypeInfo {
+pub trait TypeInfo {
     fn path() -> &'static str;
-    fn params() -> Vec<MetaTypeParameter> {
+    fn params() -> Vec<MetaType> {
         Vec::new()
     }
     fn type_info() -> Type;
 }
 
+impl TypeInfo for bool {
+    fn path() -> &'static str {
+        ""
+    }
+
+    fn type_info() -> Type {
+        Type::Primitive(Primitive::Bool)
+    }
+}
+
+#[allow(unused)]
 struct A<T> {
     a: B<T, bool>,
     b: B<B<T, T>, bool>,
 }
 
-impl<T> TypeInfo for A<T> where T: 'static + ?Sized
+impl<T> TypeInfo for A<T> where T: TypeInfo + 'static
 {
     fn path() -> &'static str {
         "A"
@@ -167,10 +210,10 @@ impl<T> TypeInfo for A<T> where T: 'static + ?Sized
     fn type_info() -> Type {
         Type::Struct (Struct {
             fields: vec! [
-                MetaType::parameterized::B<T, bool>>(
+                MetaType::parameterized::<B<T, bool>>(
                     vec![
-                        MetaType::parameter::<Self>("T", MetaType::new::<T>()),
-                        MetaType::new::<bool>(),
+                        MetaType::parameter::<Self>("T", MetaType::of::<T>()),
+                        MetaType::of::<bool>(),
                     ]
                 ),
                 MetaType::of::<B<B<T, T>, bool>>(),
@@ -179,11 +222,31 @@ impl<T> TypeInfo for A<T> where T: 'static + ?Sized
     }
 }
 
+#[allow(unused)]
 struct B<T, U> {
     a: T,
     b: U,
 }
 
-fn main() {
+impl<T, U> TypeInfo for B<T, U>
+where
+    T: TypeInfo + 'static,
+    U: TypeInfo + 'static,
+{
+    fn path() -> &'static str {
+        "B"
+    }
 
+    fn type_info() -> Type {
+        Type::Struct (Struct {
+            fields: vec! [
+                MetaType::parameter::<Self>("T", MetaType::of::<T>()),
+                MetaType::parameter::<Self>("U", MetaType::of::<U>()),
+            ]
+        })
+    }
+}
+
+fn main() {
+    let mut registry = Registry::default();
 }
