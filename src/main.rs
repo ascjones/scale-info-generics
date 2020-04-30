@@ -4,6 +4,7 @@ mod meta_type {
     use super::*;
     use super::TypeInfo;
 
+    #[derive(Debug)]
     pub enum MetaType {
         Parameter(MetaTypeParameter),
         Concrete(MetaTypeConcrete),
@@ -37,17 +38,20 @@ mod meta_type {
         }
     }
 
+    #[derive(Debug)]
     pub struct MetaTypeConcrete {
         id: any::TypeId,
         path: &'static str,
     }
 
+    #[derive(Debug)]
     pub struct MetaTypeParameter {
         name: &'static str,
         parent: MetaTypeConcrete,
         instance_id: any::TypeId,
     }
 
+    #[derive(Debug)]
     pub struct MetaTypeGeneric {
 
     }
@@ -57,15 +61,17 @@ mod form {
     use super::*;
 
     pub trait Form {
-        type Type;
+        type Type: std::fmt::Debug;
     }
 
+    #[derive(Debug)]
     pub enum MetaForm {}
 
     impl Form for MetaForm {
         type Type = MetaType;
     }
 
+    #[derive(Debug)]
     pub enum CompactForm {}
 
     impl Form for CompactForm {
@@ -79,6 +85,7 @@ mod registry {
     use super::form::*;
     use super::meta_type::*;
     use super::Type;
+    use std::fmt::{Debug, Formatter, Result};
 
     pub trait IntoCompact {
         type Output;
@@ -93,6 +100,7 @@ mod registry {
         Parameter(TypeParameter),
     }
 
+    #[derive(Debug)]
     pub enum RegistryType<F: Form = CompactForm> {
         Definition(Type<F>),
         Parameter(TypeParameter)
@@ -109,6 +117,15 @@ mod registry {
         type_table: BTreeMap<TypeId, usize>,
         type_ids: Vec<TypeId>,
         types: BTreeMap<<CompactForm as Form>::Type, RegistryType<CompactForm>>,
+    }
+
+    impl Debug for Registry {
+        fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+            for (id, ty) in self.types.iter() {
+                write!(f, "{:?} {:?}", id, ty)?;
+            }
+            Ok(())
+        }
     }
 
     impl Registry {
@@ -155,6 +172,7 @@ use meta_type::*;
 use form::*;
 use registry::*;
 
+#[derive(Debug)]
 pub enum Type<F: Form = MetaForm> {
     Primitive(Primitive),
     Struct(Struct<F>),
@@ -168,10 +186,12 @@ impl IntoCompact for Type<MetaForm> {
     }
 }
 
+#[derive(Debug)]
 pub struct Struct<F: Form = MetaForm> {
     fields: Vec<F::Type>,
 }
 
+#[derive(Debug)]
 pub enum Primitive {
     Bool,
     U32,
@@ -192,6 +212,16 @@ impl TypeInfo for bool {
 
     fn type_info() -> Type {
         Type::Primitive(Primitive::Bool)
+    }
+}
+
+impl TypeInfo for u32 {
+    fn path() -> &'static str {
+        ""
+    }
+
+    fn type_info() -> Type {
+        Type::Primitive(Primitive::U32)
     }
 }
 
@@ -249,4 +279,6 @@ where
 
 fn main() {
     let mut registry = Registry::default();
+    registry.register_type(&MetaType::of::<B<bool, u32>>());
+    println!("{:?}", registry);
 }
