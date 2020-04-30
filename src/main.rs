@@ -43,14 +43,6 @@ mod meta_type {
                 params,
             })
         }
-
-        // pub fn concrete_type_id(&self) -> any::TypeId {
-        //     match self {
-        //         MetaType::Parameter(p) => {
-        //             TypeId::Parameter()
-        //         }
-        //     }
-        // }
     }
 
     #[derive(Clone, Debug)]
@@ -133,13 +125,6 @@ mod meta_type {
         {
             MetaTypeParameterValue::Concrete(MetaTypeConcrete::new::<T>())
         }
-
-        fn type_id(&self) -> any::TypeId {
-            match self {
-                MetaTypeParameterValue::Concrete(c) => c.type_id,
-                MetaTypeParameterValue::Parameter(p) => p.instance_id,
-            }
-        }
     }
 
     impl From<MetaTypeParameterValue> for MetaType {
@@ -206,14 +191,6 @@ mod registry {
 
         fn into_compact(self, registry: &mut Registry) -> Self::Output;
     }
-
-    // impl<T> IntoCompact for T where T: IntoCompact<Output = T<CompactForm>> {
-    //     type Output = T<CompactForm>;
-    //
-    //     fn into_compact(self, registry: &mut Registry) -> Self::Output {
-    //         self
-    //     }
-    // }
 
     #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone)]
     pub enum TypeId {
@@ -460,13 +437,17 @@ impl TypeInfo for u32 {
 #[allow(unused)]
 struct A<T> {
     a: B<T, bool>,
-    b: B<B<T, T>, bool>,
+    // b: B<B<T, T>, bool>,
 }
 
 impl<T> TypeInfo for A<T> where T: TypeInfo + 'static
 {
     fn path() -> &'static str {
         "A"
+    }
+
+    fn params() -> Vec<MetaTypeConcrete> {
+        vec![MetaTypeConcrete::new::<T>()]
     }
 
     fn type_info() -> Type {
@@ -518,5 +499,6 @@ fn main() {
     registry.register_type(&MetaType::of::<B<bool, u32>>());
     registry.register_type(&MetaType::of::<B<u32, bool>>());
     registry.register_type(&MetaType::of::<A<bool>>());
+    registry.register_type(&MetaType::of::<A<A<bool>>>());
     println!("{:?}", registry);
 }
