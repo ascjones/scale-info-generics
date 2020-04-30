@@ -10,6 +10,7 @@ mod meta_type {
         Parameter(MetaTypeParameter),
         Concrete(MetaTypeConcrete),
         Parameterized(MetaTypeParameterized),
+        Generic(MetaTypeGeneric),
     }
 
     impl MetaType
@@ -28,8 +29,8 @@ mod meta_type {
         {
             MetaType::Parameter(MetaTypeParameter {
                 name,
-                parent: MetaTypeConcrete::new::<T>(),
-                instance_id: any::TypeId::of::<T>(),
+                parent: MetaTypeGeneric::new::<T>(),
+                instance_id: any::TypeId::of::<P>(),
             })
         }
 
@@ -49,6 +50,7 @@ mod meta_type {
         pub type_id: any::TypeId,
         pub fn_type_info: fn() -> Type,
         pub path: &'static str,
+        pub params: Vec<MetaTypeConcrete>,
     }
 
     impl PartialEq for MetaTypeConcrete {
@@ -80,21 +82,40 @@ mod meta_type {
                 type_id: any::TypeId::of::<T>(),
                 fn_type_info: T::type_info,
                 path: T::path(),
+                params: T::params(),
             }
         }
     }
 
     #[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Debug)]
     pub struct MetaTypeParameter {
-        name: &'static str,
-        parent: MetaTypeConcrete,
-        instance_id: any::TypeId,
+        pub name: &'static str,
+        pub parent: MetaTypeGeneric,
+        pub instance_id: any::TypeId,
     }
 
     #[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Debug)]
     pub struct MetaTypeParameterized {
-        concrete: MetaTypeConcrete,
-        params: Vec<MetaType>,
+        pub concrete: MetaTypeConcrete,
+        pub params: Vec<MetaType>,
+    }
+
+    #[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Debug)]
+    pub struct MetaTypeGeneric {
+        pub fn_type_info: fn() -> Type,
+        pub path: &'static str,
+    }
+
+    impl MetaTypeGeneric {
+        fn new<T>() -> Self
+            where
+                T: 'static + ?Sized + TypeInfo
+        {
+            Self {
+                fn_type_info: T::type_info,
+                path: T::path(),
+            }
+        }
     }
 }
 
@@ -133,6 +154,14 @@ mod registry {
 
         fn into_compact(self, registry: &mut Registry) -> Self::Output;
     }
+
+    // impl<T> IntoCompact for T where T: IntoCompact<Output = T<CompactForm>> {
+    //     type Output = T<CompactForm>;
+    //
+    //     fn into_compact(self, registry: &mut Registry) -> Self::Output {
+    //         self
+    //     }
+    // }
 
     #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone)]
     pub enum TypeId {
@@ -185,7 +214,7 @@ mod registry {
     impl Debug for Registry {
         fn fmt(&self, f: &mut Formatter<'_>) -> Result {
             for (id, ty) in self.types.iter() {
-                write!(f, "{:?} {:?}", id, ty)?;
+                writeln!(f, "{:?} {:?}", id, ty)?;
             }
             Ok(())
         }
@@ -193,9 +222,9 @@ mod registry {
 
     impl Registry {
         fn intern_type<F, T>(&mut self, type_id: TypeId, f: F) -> <CompactForm as Form>::Type
-            where
-                F: FnOnce () -> T,
-                T: Into<RegistryType>,
+        where
+            F: FnOnce () -> T,
+            T: IntoCompact<Output = RegistryType<CompactForm>>
         {
             let next_id = self.type_ids.len();
             let (inserted, sym_id) = match self.type_table.entry(type_id.clone()) {
@@ -208,7 +237,7 @@ mod registry {
             };
             let symbol = (sym_id + 1) as u32;
             if inserted {
-                let registry_type = f().into();
+                let registry_type = f();
                 let compact_type = registry_type.into_compact(self);
                 self.types.insert(symbol.clone(), compact_type);
             }
@@ -224,8 +253,23 @@ mod registry {
                         RegistryType::Definition(type_info)
                     })
                 },
+                MetaType::Generic(ty) => {
+                    let type_id = TypeId::Path(ty.path);
+                    self.intern_type(type_id, || {
+                        let type_info = (ty.fn_type_info)();
+                        RegistryType::Definition(type_info)
+                    })
+                }
                 MetaType::Parameter(p) => {
-                    todo!()
+                    let generic_meta_type = MetaType::Generic(p.parent.clone());
+                    let type_parameter = TypeParameter {
+                        parent: generic_meta_type,
+                        path: p.name,
+                    };
+                    let param_type_id = TypeId::Parameter(type_parameter.clone().into_compact(self));
+                    self.intern_type(param_type_id, || {
+                        RegistryType::Parameter(type_parameter)
+                    })
                 }
                 MetaType::Parameterized(g) => {
                     todo!()
@@ -279,7 +323,7 @@ pub enum Primitive {
 
 pub trait TypeInfo {
     fn path() -> &'static str;
-    fn params() -> Vec<MetaType> {
+    fn params() -> Vec<MetaTypeConcrete> {
         Vec::new()
     }
     fn type_info() -> Type;
