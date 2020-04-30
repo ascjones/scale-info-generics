@@ -237,6 +237,7 @@ mod registry {
             match self {
                 RegistryType::Definition(ty) => RegistryType::Definition(ty.into_compact(registry)),
                 RegistryType::Parameter(tp) => RegistryType::Parameter(tp.into_compact(registry)),
+                RegistryType::Generic(g) => RegistryType::Generic(g.into_compact(registry)),
             }
         }
     }
@@ -359,13 +360,12 @@ mod registry {
 
                     self.param_stack.extend_from_slice(&g.params);
 
-                    let mut param_stack = self.param_stack.iter().peekable();
                     let params = g.concrete.params.iter().map(|p| {
-                        if let Some(param) = param_stack.peek() {
+                        if let Some(param) = self.param_stack.pop() {
                             if param.type_id() == p.type_id {
-                                let param = self.param_stack.pop().expect("Stack is not empty");
                                 param.into()
                             } else {
+                                self.param_stack.push(param);
                                 MetaType::Concrete(p.clone())
                             }
                         } else {
@@ -378,7 +378,7 @@ mod registry {
                         params
                     };
 
-                    let type_id = TypeId::Generic(generic.into_compact(self));
+                    let type_id = TypeId::Generic(generic.clone().into_compact(self));
 
                     self.intern_type(type_id, || RegistryType::Generic(generic))
                 }
