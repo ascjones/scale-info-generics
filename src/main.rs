@@ -34,7 +34,7 @@ mod meta_type {
             })
         }
 
-        pub fn parameterized<T>(params: Vec<MetaType>) -> Self
+        pub fn parameterized<T>(params: Vec<MetaTypeParameterValue>) -> Self
         where
             T: 'static + ?Sized + TypeInfo
         {
@@ -43,6 +43,14 @@ mod meta_type {
                 params,
             })
         }
+
+        // pub fn concrete_type_id(&self) -> any::TypeId {
+        //     match self {
+        //         MetaType::Parameter(p) => {
+        //             TypeId::Parameter()
+        //         }
+        //     }
+        // }
     }
 
     #[derive(Clone, Debug)]
@@ -74,7 +82,7 @@ mod meta_type {
     }
 
     impl MetaTypeConcrete {
-        fn new<T>() -> Self
+        pub fn new<T>() -> Self
         where
             T: 'static + ?Sized + TypeInfo
         {
@@ -97,7 +105,50 @@ mod meta_type {
     #[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Debug)]
     pub struct MetaTypeParameterized {
         pub concrete: MetaTypeConcrete,
-        pub params: Vec<MetaType>,
+        pub params: Vec<MetaTypeParameterValue>,
+    }
+
+    #[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Debug)]
+    pub enum MetaTypeParameterValue {
+        Concrete(MetaTypeConcrete),
+        Parameter(MetaTypeParameter),
+    }
+
+    impl MetaTypeParameterValue {
+        pub fn parameter<T, P>(name: &'static str) -> Self
+        where
+            T: 'static + ?Sized + TypeInfo,
+            P: 'static + ?Sized + TypeInfo,
+        {
+            MetaTypeParameterValue::Parameter(MetaTypeParameter {
+                name,
+                parent: MetaTypeGeneric::new::<T>(),
+                instance_id: any::TypeId::of::<P>(),
+            })
+        }
+
+        pub fn concrete<T>() -> Self
+            where
+                T: 'static + ?Sized + TypeInfo
+        {
+            MetaTypeParameterValue::Concrete(MetaTypeConcrete::new::<T>())
+        }
+
+        fn type_id(&self) -> any::TypeId {
+            match self {
+                MetaTypeParameterValue::Concrete(c) => c.type_id,
+                MetaTypeParameterValue::Parameter(p) => p.instance_id,
+            }
+        }
+    }
+
+    impl From<MetaTypeParameterValue> for MetaType {
+        fn from(p: MetaTypeParameterValue) -> Self {
+            match p {
+                MetaTypeParameterValue::Concrete(c) => MetaType::Concrete(c),
+                MetaTypeParameterValue::Parameter(p) => MetaType::Parameter(p),
+            }
+        }
     }
 
     #[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Debug)]
@@ -148,6 +199,7 @@ mod registry {
     use super::meta_type::*;
     use super::Type;
     use std::fmt::{Debug, Formatter, Result};
+    use std::any::Any;
 
     pub trait IntoCompact {
         type Output;
@@ -168,12 +220,14 @@ mod registry {
         Any(any::TypeId),
         Path(&'static str),
         Parameter(TypeParameter<CompactForm>),
+        Generic(RegistryTypeGeneric<CompactForm>),
     }
 
     #[derive(Debug)]
     pub enum RegistryType<F: Form = MetaForm> {
         Definition(Type<F>),
-        Parameter(TypeParameter<F>)
+        Parameter(TypeParameter<F>),
+        Generic(RegistryTypeGeneric<F>),
     }
 
     impl IntoCompact for RegistryType<MetaForm> {
@@ -204,10 +258,28 @@ mod registry {
         }
     }
 
+    #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone)]
+    pub struct RegistryTypeGeneric<F: Form = MetaForm> {
+        ty: F::Type,
+        params: Vec<F::Type>,
+    }
+
+    impl IntoCompact for RegistryTypeGeneric<MetaForm> {
+        type Output = RegistryTypeGeneric<CompactForm>;
+
+        fn into_compact(self, registry: &mut Registry) -> Self::Output {
+            RegistryTypeGeneric {
+                ty: registry.register_type(&self.ty),
+                params: self.params.iter().map(|p| registry.register_type(p)).collect(),
+            }
+        }
+    }
+
     #[derive(Default)]
     pub struct Registry {
         type_table: BTreeMap<TypeId, usize>,
         type_ids: Vec<TypeId>,
+        param_stack: Vec<MetaTypeParameterValue>,
         types: BTreeMap<<CompactForm as Form>::Type, RegistryType<CompactForm>>,
     }
 
@@ -246,13 +318,21 @@ mod registry {
 
         pub fn register_type(&mut self, ty: &MetaType) -> <CompactForm as Form>::Type {
             match ty {
-                MetaType::Concrete(ty) => {
-                    let type_id = TypeId::Any(ty.type_id);
-                    self.intern_type(type_id, || {
-                        let type_info = (ty.fn_type_info)();
-                        RegistryType::Definition(type_info)
-                    })
-                },
+                MetaType::Concrete(concrete) => {
+                    if concrete.params.len() > 0 {
+                        let parameterized = MetaType::Parameterized(MetaTypeParameterized {
+                            concrete: concrete.clone(),
+                            params: concrete.params.iter().map(|concrete| MetaTypeParameterValue::Concrete(concrete.clone())).collect(),
+                        });
+                        self.register_type(&parameterized)
+                    } else {
+                        let type_id = TypeId::Any(concrete.type_id);
+                        self.intern_type(type_id, || {
+                            let type_info = (concrete.fn_type_info)();
+                            RegistryType::Definition(type_info)
+                        })
+                    }
+                }
                 MetaType::Generic(ty) => {
                     let type_id = TypeId::Path(ty.path);
                     self.intern_type(type_id, || {
@@ -272,7 +352,35 @@ mod registry {
                     })
                 }
                 MetaType::Parameterized(g) => {
-                    todo!()
+                    let generic_meta_type = MetaType::Generic(MetaTypeGeneric {
+                        fn_type_info: g.concrete.fn_type_info.clone(),
+                        path: g.concrete.path,
+                    });
+
+                    self.param_stack.extend_from_slice(&g.params);
+
+                    let mut param_stack = self.param_stack.iter().peekable();
+                    let params = g.concrete.params.iter().map(|p| {
+                        if let Some(param) = param_stack.peek() {
+                            if param.type_id() == p.type_id {
+                                let param = self.param_stack.pop().expect("Stack is not empty");
+                                param.into()
+                            } else {
+                                MetaType::Concrete(p.clone())
+                            }
+                        } else {
+                            MetaType::Concrete(p.clone())
+                        }
+                    }).collect::<Vec<_>>();
+
+                    let generic = RegistryTypeGeneric {
+                        ty: generic_meta_type,
+                        params
+                    };
+
+                    let type_id = TypeId::Generic(generic.into_compact(self));
+
+                    self.intern_type(type_id, || RegistryType::Generic(generic))
                 }
             }
         }
@@ -366,11 +474,11 @@ impl<T> TypeInfo for A<T> where T: TypeInfo + 'static
             fields: vec! [
                 MetaType::parameterized::<B<T, bool>>(
                     vec![
-                        MetaType::parameter::<Self, T>("T"),
-                        MetaType::of::<bool>(),
+                        MetaTypeParameterValue::parameter::<Self, T>("T"),
+                        MetaTypeParameterValue::concrete::<bool>(),
                     ]
                 ),
-                MetaType::of::<B<B<T, T>, bool>>(),
+                // MetaType::of::<B<B<T, T>, bool>>(),
             ]
         })
     }
@@ -389,6 +497,10 @@ where
 {
     fn path() -> &'static str {
         "B"
+    }
+
+    fn params() -> Vec<MetaTypeConcrete> {
+        vec![MetaTypeConcrete::new::<T>(), MetaTypeConcrete::new::<U>()]
     }
 
     fn type_info() -> Type {
