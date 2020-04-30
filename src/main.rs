@@ -225,7 +225,7 @@ mod registry {
 
     #[derive(Debug)]
     pub enum RegistryType<F: Form = MetaForm> {
-        Definition(Type<F>),
+        Definition(&'static str, Type<F>),
         Parameter(TypeParameter<F>),
         Generic(RegistryTypeGeneric<F>),
     }
@@ -235,7 +235,7 @@ mod registry {
 
         fn into_compact(self, registry: &mut Registry) -> Self::Output {
             match self {
-                RegistryType::Definition(ty) => RegistryType::Definition(ty.into_compact(registry)),
+                RegistryType::Definition(path, ty) => RegistryType::Definition(path, ty.into_compact(registry)),
                 RegistryType::Parameter(tp) => RegistryType::Parameter(tp.into_compact(registry)),
                 RegistryType::Generic(g) => RegistryType::Generic(g.into_compact(registry)),
             }
@@ -330,7 +330,7 @@ mod registry {
                         let type_id = TypeId::Any(concrete.type_id);
                         self.intern_type(type_id, || {
                             let type_info = (concrete.fn_type_info)();
-                            RegistryType::Definition(type_info)
+                            RegistryType::Definition(concrete.path, type_info)
                         })
                     }
                 }
@@ -338,7 +338,7 @@ mod registry {
                     let type_id = TypeId::Path(ty.path);
                     self.intern_type(type_id, || {
                         let type_info = (ty.fn_type_info)();
-                        RegistryType::Definition(type_info)
+                        RegistryType::Definition(ty.path, type_info)
                     })
                 }
                 MetaType::Parameter(p) => {
@@ -516,5 +516,7 @@ where
 fn main() {
     let mut registry = Registry::default();
     registry.register_type(&MetaType::of::<B<bool, u32>>());
+    registry.register_type(&MetaType::of::<B<u32, bool>>());
+    registry.register_type(&MetaType::of::<A<bool>>());
     println!("{:?}", registry);
 }
