@@ -325,7 +325,6 @@ mod registry {
         pub fn register_type(&mut self, ty: &MetaType) -> <CompactForm as Form>::Type {
             match ty {
                 MetaType::Concrete(concrete) => {
-                    println!("Concrete");
                     if concrete.params.len() > 0 {
                         let generic_meta_type = MetaType::Generic(MetaTypeGeneric {
                             fn_type_info: concrete.fn_type_info.clone(),
