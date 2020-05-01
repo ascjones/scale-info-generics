@@ -326,12 +326,24 @@ mod registry {
         pub fn register_type(&mut self, ty: &MetaType) -> <CompactForm as Form>::Type {
             match ty {
                 MetaType::Concrete(concrete) => {
+                    println!("Concrete");
                     if concrete.params.len() > 0 {
-                        let parameterized = MetaType::Parameterized(MetaTypeParameterized {
-                            concrete: concrete.clone(),
-                            params: concrete.params.iter().map(|p| MetaTypeParameterValue::Concrete(p.clone())).collect(),
+                        let generic_meta_type = MetaType::Generic(MetaTypeGeneric {
+                            fn_type_info: concrete.fn_type_info.clone(),
+                            path: concrete.path,
                         });
-                        self.register_type(&parameterized)
+
+                        let generic = RegistryTypeGeneric {
+                            ty: generic_meta_type,
+                            params: concrete.params.iter().map(|p| MetaType::Concrete(p.clone())).collect(),
+                        };
+
+                        let compact_generic = generic.into_compact(self);
+
+                        let type_id = TypeId::Generic(compact_generic.clone());
+
+                        self.intern_type(type_id, || RegistryType::Generic(compact_generic))
+
                     } else {
                         let type_id = TypeId::Any(concrete.type_id);
                         self.intern_type(type_id, || {
@@ -364,25 +376,26 @@ mod registry {
                         path: parameterized.concrete.path,
                     });
 
-                    self.params.extend(parameterized.params.clone());
                     println!();
                     println!("Parameterized: {:?}", parameterized);
+                    println!("Extending: {:?}", parameterized.params);
+                    self.params.extend(parameterized.params.iter().cloned().rev());
 
-                    let params = parameterized.concrete.params.iter().map(|p| {
+                    let params = parameterized.concrete.params.iter().map(|concrete_param| {
                         println!();
                         println!("Checking against concrete param {:?}", p);
                         if let Some(param) = self.params.pop_front() {
                             println!("popped {:?}", param);
-                            if param.concrete_type_id() == p.type_id {
+                            if param.concrete_type_id() == concrete_param.type_id {
                                 println!("registering param {:?}", param);
                                 self.register_type(&param.into())
-                            } else {
+                            } else if concrete_param.params.len() > 0 {
                                 println!("pushing param back {:?}", param);
                                 self.params.push_front(param);
                                 self.register_type(&MetaType::Concrete(p.clone()))
                             }
                         } else {
-                            self.register_type(&&MetaType::Concrete(p.clone()))
+                            self.register_type(&&MetaType::Concrete(concrete_param.clone()))
                         }
                     }).collect::<Vec<_>>();
 
@@ -515,16 +528,15 @@ impl<T> TypeInfo for A<T> where T: TypeInfo + 'static
     fn type_info() -> Type {
         Type::Struct (Struct {
             fields: vec! [
-                // Field::new(
-                //     "a",
-                //     MetaType::parameterized::<B<T, bool>>(
-                //         vec![
-                //             MetaTypeParameterValue::parameter::<Self, T>("T"),
-                //             MetaTypeParameterValue::concrete::<bool>(),
-                //         ]
-                //     )
-                // ),
-
+                Field::new(
+                    "a",
+                    MetaType::parameterized::<B<T, bool>>(
+                        vec![
+                            MetaTypeParameterValue::parameter::<Self, T>("T"),
+                            MetaTypeParameterValue::concrete::<bool>(),
+                        ]
+                    )
+                ),
                 Field::new(
                     "b",
                 MetaType::parameterized::<B<B<T, T>, bool>>(
