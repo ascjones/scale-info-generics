@@ -607,12 +607,75 @@ impl<T> TypeInfo for C<T> where T: TypeInfo + 'static
     }
 }
 
+// todo: move this to impls section
+struct TraitInfo {
+    name: &'static str,
+    types: Vec<AssociatedType>,
+}
+
+struct AssociatedType(&'static str);
+
+trait TraitMetadata {
+    fn trait_info() -> TraitInfo;
+}
+
+trait EnvTypes: TraitMetadata {
+    type A;
+}
+
+// should add a proc macro attribute to the trait
+impl<T> TraitMetadata for T where T: EnvTypes {
+    fn trait_info() -> TraitInfo {
+        TraitInfo {
+            name: "EnvTypes",
+            types: vec![
+                AssociatedType("A"),
+            ]
+        }
+    }
+}
+
+#[allow(unused)]
+struct D<T>
+where
+    T: EnvTypes
+{
+    a: T::A,
+}
+
+impl<T> TypeInfo for D<T>
+where
+    T: EnvTypes,
+    T::A: TypeInfo + 'static,
+{
+    fn path() -> &'static str {
+        "D"
+    }
+
+    fn type_info() -> Type<MetaForm> {
+        Type::Struct (Struct {
+            fields: vec! [
+                // Field::new("a", MetaType::associated::<T, T::A>("A")),
+            ]
+        })
+    }
+}
+
+enum E {}
+
+impl EnvTypes for E {
+    type A = u32;
+}
+
 fn main() {
     let mut registry = Registry::default();
     registry.register_type(&MetaType::of::<B<bool, u32>>());
     registry.register_type(&MetaType::of::<B<u32, bool>>());
     registry.register_type(&MetaType::of::<A<bool>>());
     registry.register_type(&MetaType::of::<A<A<bool>>>());
+
+    // assoc
+    registry.register_type(&MetaType::of::<D<E>>());
 
     println!();
     println!("{:?}", registry);
