@@ -511,7 +511,7 @@ impl TypeInfo for u32 {
 
 #[allow(unused)]
 struct A<T> {
-    // a: B<T, bool>,
+    a: B<T, bool>,
     b: B<B<T, T>, bool>,
 }
 
@@ -555,6 +555,7 @@ impl<T> TypeInfo for A<T> where T: TypeInfo + 'static
 struct B<T, U> {
     a: T,
     b: U,
+    c: C<T>,
 }
 
 impl<T, U> TypeInfo for B<T, U>
@@ -578,6 +579,33 @@ where
             fields: vec! [
                 Field::new("a", MetaType::parameter::<Self, T>("T")),
                 Field::new("b", MetaType::parameter::<Self, U>("U")),
+                Field::new("c", MetaType::parameterized::<C<T>>(
+                    vec![MetaTypeParameterValue::parameter::<Self, T>("T")]
+                )),
+            ]
+        })
+    }
+}
+
+#[allow(unused)]
+struct C<T> {
+    a: T,
+}
+
+impl<T> TypeInfo for C<T> where T: TypeInfo + 'static
+{
+    fn path() -> &'static str {
+        "C"
+    }
+
+    fn params() -> Vec<MetaTypeConcrete> {
+        vec![MetaTypeConcrete::new::<T>()]
+    }
+
+    fn type_info() -> Type {
+        Type::Struct (Struct {
+            fields: vec! [
+                Field::new("a", MetaType::parameter::<Self, T>("T")),
             ]
         })
     }
