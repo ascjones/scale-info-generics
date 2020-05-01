@@ -585,10 +585,10 @@ where
 
 fn main() {
     let mut registry = Registry::default();
-    // registry.register_type(&MetaType::of::<B<bool, u32>>());
-    // registry.register_type(&MetaType::of::<B<u32, bool>>());
+    registry.register_type(&MetaType::of::<B<bool, u32>>());
+    registry.register_type(&MetaType::of::<B<u32, bool>>());
     registry.register_type(&MetaType::of::<A<bool>>());
-    // registry.register_type(&MetaType::of::<A<A<bool>>>());
+    registry.register_type(&MetaType::of::<A<A<bool>>>());
 
     println!();
     println!("{:?}", registry);
