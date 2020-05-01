@@ -204,7 +204,6 @@ mod registry {
     use super::meta_type::*;
     use super::Type;
     use std::fmt::{Debug, Formatter, Result};
-    use std::collections::VecDeque;
 
     pub trait IntoCompact {
         type Output;
