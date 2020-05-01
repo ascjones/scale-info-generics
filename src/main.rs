@@ -48,7 +48,7 @@ mod meta_type {
         pub type_name: &'static str,
         pub fn_type_info: fn() -> Type,
         pub path: &'static str,
-        pub params: Vec<MetaTypeParameterValue>,
+        pub params: Vec<MetaTypeConcrete>,
     }
 
     impl PartialEq for MetaTypeConcrete {
@@ -138,6 +138,13 @@ mod meta_type {
         {
             MetaTypeParameterValue::Concrete(MetaTypeConcrete::new::<T>())
         }
+
+        pub fn concrete_type_id(&self) -> any::TypeId {
+            match self {
+                MetaTypeParameterValue::Concrete(concrete) => concrete.type_id,
+                MetaTypeParameterValue::Parameter(param) => param.concrete.type_id,
+            }
+        }
     }
 
     impl From<MetaTypeParameterValue> for MetaType {
@@ -197,7 +204,6 @@ mod registry {
     use super::meta_type::*;
     use super::Type;
     use std::fmt::{Debug, Formatter, Result};
-    use std::any::Any;
     use std::collections::VecDeque;
 
     pub trait IntoCompact {
@@ -323,7 +329,7 @@ mod registry {
                     if concrete.params.len() > 0 {
                         let parameterized = MetaType::Parameterized(MetaTypeParameterized {
                             concrete: concrete.clone(),
-                            params: concrete.params.clone(),
+                            params: concrete.params.iter().map(|p| MetaTypeParameterValue::Concrete(p.clone())).collect(),
                         });
                         self.register_type(&parameterized)
                     } else {
@@ -359,21 +365,24 @@ mod registry {
                     });
 
                     self.params.extend(parameterized.params.clone());
+                    println!();
+                    println!("Parameterized: {:?}", parameterized);
 
                     let params = parameterized.concrete.params.iter().map(|p| {
+                        println!();
+                        println!("Checking against concrete param {:?}", p);
                         if let Some(param) = self.params.pop_front() {
                             println!("popped {:?}", param);
-                            println!("Checking against concrete param {:?}", p);
-                            if param.type_id() == p.type_id() {
+                            if param.concrete_type_id() == p.type_id {
                                 println!("registering param {:?}", param);
                                 self.register_type(&param.into())
                             } else {
                                 println!("pushing param back {:?}", param);
                                 self.params.push_front(param);
-                                self.register_type(&p.clone().into())
+                                self.register_type(&MetaType::Concrete(p.clone()))
                             }
                         } else {
-                            self.register_type(&p.clone().into())
+                            self.register_type(&&MetaType::Concrete(p.clone()))
                         }
                     }).collect::<Vec<_>>();
 
@@ -461,7 +470,7 @@ pub enum Primitive {
 
 pub trait TypeInfo {
     fn path() -> &'static str;
-    fn params() -> Vec<MetaTypeParameterValue> {
+    fn params() -> Vec<MetaTypeConcrete> {
         Vec::new()
     }
     fn type_info() -> Type;
@@ -499,8 +508,8 @@ impl<T> TypeInfo for A<T> where T: TypeInfo + 'static
         "A"
     }
 
-    fn params() -> Vec<MetaTypeParameterValue> {
-        vec![MetaTypeParameterValue::parameter::<Self, T>("T")]
+    fn params() -> Vec<MetaTypeConcrete> {
+        vec![MetaTypeConcrete::new::<T>()]
     }
 
     fn type_info() -> Type {
@@ -545,10 +554,10 @@ where
         "B"
     }
 
-    fn params() -> Vec<MetaTypeParameterValue> {
+    fn params() -> Vec<MetaTypeConcrete> {
         vec![
-            MetaTypeParameterValue::parameter::<Self, T>("T"),
-            MetaTypeParameterValue::parameter::<Self, U>("U"),
+            MetaTypeConcrete::new::<T>(),
+            MetaTypeConcrete::new::<U>(),
         ]
     }
 
@@ -564,10 +573,10 @@ where
 
 fn main() {
     let mut registry = Registry::default();
-    registry.register_type(&MetaType::of::<B<bool, u32>>());
-    registry.register_type(&MetaType::of::<B<u32, bool>>());
+    // registry.register_type(&MetaType::of::<B<bool, u32>>());
+    // registry.register_type(&MetaType::of::<B<u32, bool>>());
     registry.register_type(&MetaType::of::<A<bool>>());
-    registry.register_type(&MetaType::of::<A<A<bool>>>());
+    // registry.register_type(&MetaType::of::<A<A<bool>>>());
 
     println!();
     println!("{:?}", registry);
