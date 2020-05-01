@@ -286,7 +286,7 @@ mod registry {
     pub struct Registry {
         type_table: BTreeMap<TypeId, usize>,
         type_ids: Vec<TypeId>,
-        params: VecDeque<MetaTypeParameterValue>,
+        params: Vec<MetaTypeParameterValue>,
         types: BTreeMap<<CompactForm as Form>::Type, RegistryType<CompactForm>>,
     }
 
@@ -383,16 +383,22 @@ mod registry {
 
                     let params = parameterized.concrete.params.iter().map(|concrete_param| {
                         println!();
-                        println!("Checking against concrete param {:?}", p);
-                        if let Some(param) = self.params.pop_front() {
+                        println!("Checking against concrete param {:?}", concrete_param);
+                        if let Some(param) = self.params.pop() {
                             println!("popped {:?}", param);
                             if param.concrete_type_id() == concrete_param.type_id {
                                 println!("registering param {:?}", param);
                                 self.register_type(&param.into())
                             } else if concrete_param.params.len() > 0 {
                                 println!("pushing param back {:?}", param);
-                                self.params.push_front(param);
-                                self.register_type(&MetaType::Concrete(p.clone()))
+                                self.params.push(param);
+                                // recurse
+                                self.register_type(&MetaType::Parameterized(MetaTypeParameterized {
+                                    concrete: concrete_param.clone(),
+                                    params: Vec::new(),
+                                }))
+                            } else {
+                                panic!("Should either be matching concrete type (e.g. bool) or parameterized e.g. Option<T>")
                             }
                         } else {
                             self.register_type(&&MetaType::Concrete(concrete_param.clone()))
