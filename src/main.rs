@@ -376,21 +376,13 @@ mod registry {
                         path: parameterized.concrete.path,
                     });
 
-                    println!();
-                    println!("Parameterized: {:?}", parameterized);
-                    println!("Extending: {:?}", parameterized.params);
                     self.params.extend(parameterized.params.iter().cloned().rev());
 
                     let params = parameterized.concrete.params.iter().map(|concrete_param| {
-                        println!();
-                        println!("Checking against concrete param {:?}", concrete_param);
                         if let Some(param) = self.params.pop() {
-                            println!("popped {:?}", param);
                             if param.concrete_type_id() == concrete_param.type_id {
-                                println!("registering param {:?}", param);
                                 self.register_type(&param.into())
                             } else if concrete_param.params.len() > 0 {
-                                println!("pushing param back {:?}", param);
                                 self.params.push(param);
                                 // recurse
                                 self.register_type(&MetaType::Parameterized(MetaTypeParameterized {
